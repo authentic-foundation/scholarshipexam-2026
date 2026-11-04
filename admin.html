@@ -63,7 +63,7 @@ img.t{width:46px;height:46px;border-radius:50%;object-fit:cover;margin-right:10p
     <label>Name</label><input id="sName">
     <label>Academic qualification</label><input id="sQual" placeholder="e.g. GPA 5.00 in SSC, Dhaka College">
     <label>Text</label><textarea id="sText" rows="2"></textarea>
-    <button id="addS">Add student</button> <span id="smsg"></span>
+    <button id="addS">Add student</button> <button id="cancelS" style="display:none;background:#666">Cancel edit</button> <span id="smsg"></span>
     <h4>Added students</h4><div id="sList"></div>
   </div>
 </div>
@@ -72,7 +72,7 @@ img.t{width:46px;height:46px;border-radius:50%;object-fit:cover;margin-right:10p
 <script>
 const API_URL = "https://script.google.com/macros/s/AKfycbxNUhjVqXwI1qALRQlQpIGRXJW3bw_9aC_EHHLHUO4lXMUnuT0MNEx3MoAH2ajOvE57/exec";
 const $=s=>document.querySelector(s);
-let PW=sessionStorage.getItem('pw')||'', ROWS=[];
+let PW=sessionStorage.getItem('pw')||'', ROWS=[], SHOW=[], editId=null;
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 async function api(action,extra={}){
@@ -85,7 +85,8 @@ async function load(){
   $('#login').style.display='none';$('#panel').style.display='block';
   ROWS=j.rows;drawRows();
   for(const k of ['topNote','successTitle','successMessage','fbName','fbLink']) $('#'+k).value=j.config[k]||'';
-  $('#sList').innerHTML=j.showcase.map(s=>`<div class="row"><div class="flex">${s.photo?`<img class="t" src="${esc(s.photo)}">`:''}<div><b>${esc(s.name)}</b><small>${esc(s.qualification)}</small></div></div><button class="del" onclick="delS('${esc(s.id)}')">Delete</button></div>`).join('')||'<small>None yet</small>';
+  SHOW=j.showcase;
+  $('#sList').innerHTML=SHOW.map((s,i)=>`<div class="row"><div class="flex">${s.photo?`<img class="t" src="${esc(s.photo)}">`:''}<div><b>${esc(s.name)}</b><small>${esc(s.qualification)}</small></div></div><div style="display:flex;gap:6px"><button onclick="editS(${i})" style="padding:6px 10px;font-size:.85rem">Edit</button><button class="del" onclick="delS('${esc(s.id)}')">Delete</button></div></div>`).join('')||'<small>None yet</small>';
 }
 function drawRows(){
   const q=$('#q').value.toLowerCase();
@@ -117,12 +118,22 @@ function resize(file){return new Promise((res,rej)=>{
     res(c.toDataURL('image/jpeg',.85).split(',')[1]);
   };img.onerror=rej;img.src=URL.createObjectURL(file);
 })}
+function resetS(){editId=null;['sName','sQual','sText','photo'].forEach(i=>$('#'+i).value='');$('#addS').textContent='Add student';$('#cancelS').style.display='none'}
+function editS(i){
+  const s=SHOW[i];editId=s.id;
+  $('#sName').value=s.name;$('#sQual').value=s.qualification;$('#sText').value=s.text;$('#photo').value='';
+  $('#addS').textContent='Save changes';$('#cancelS').style.display='inline-block';
+  $('#smsg').textContent='Editing. Leave photo empty to keep the current one.';
+  document.querySelectorAll('.tabs [data-t]')[2].click();scrollTo({top:0,behavior:'smooth'});
+}
+$('#cancelS').onclick=()=>{resetS();$('#smsg').textContent=''};
 $('#addS').onclick=async()=>{
   const name=$('#sName').value.trim();if(!name){$('#smsg').textContent='Name is required';return}
-  $('#smsg').textContent='Uploading...';
+  $('#smsg').textContent='Saving...';
   const f=$('#photo').files[0];
-  const j=await api('addStudent',{name,qualification:$('#sQual').value,text:$('#sText').value,photoBase64:f?await resize(f):''});
-  if(j.ok){['sName','sQual','sText','photo'].forEach(i=>$('#'+i).value='');$('#smsg').textContent='Added ✔';load()}else $('#smsg').textContent=j.error||'Error';
+  const body={name,qualification:$('#sQual').value,text:$('#sText').value,photoBase64:f?await resize(f):''};
+  const j=editId?await api('editStudent',{...body,id:editId}):await api('addStudent',body);
+  if(j.ok){const was=editId;resetS();$('#smsg').textContent=was?'Updated ✔':'Added ✔';load()}else $('#smsg').textContent=j.error||'Error';
 };
 
 if(PW)load();
