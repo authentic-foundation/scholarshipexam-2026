@@ -14,10 +14,10 @@ header{background:linear-gradient(135deg,#0c1b3d,#1f4796);color:#fff;text-align:
 .logo img{width:100%;height:100%;object-fit:cover;transform:scale(1.1);display:block}
 header h1{margin:0;font-size:1.7rem}
 header p{margin:6px 0 0;opacity:.9}
-#theme{position:absolute;top:12px;right:12px;border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.12);color:#fff;border-radius:20px;padding:6px 12px;cursor:pointer;font-size:.85rem}
+#theme{position:fixed;top:12px;right:12px;z-index:60;border:1px solid rgba(255,255,255,.45);background:rgba(12,27,61,.85);color:#fff;border-radius:20px;padding:6px 12px;cursor:pointer;font-size:.85rem}
 main{max-width:640px;margin:-34px auto 0;padding:0 14px 40px;position:relative;z-index:1}
 .card{background:var(--card);border-radius:22px;padding:22px 18px;box-shadow:var(--shadow)}
-.note{background:var(--card);border-left:4px solid var(--accent);border-radius:12px;padding:12px 14px;margin-bottom:14px;white-space:pre-wrap;box-shadow:var(--shadow)}
+.note{background:var(--card);border-left:4px solid var(--accent);border-radius:12px;padding:12px 14px;margin-bottom:14px;box-shadow:var(--shadow)}
 h2{font-size:1.15rem;margin:26px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
 h2:first-child{margin-top:0}
 label{display:block;font-weight:600;margin:14px 0 6px;font-size:.95rem}
@@ -31,7 +31,9 @@ button.submit:disabled{opacity:.6;cursor:wait}
 footer{text-align:center;color:var(--muted);margin-top:22px;font-size:.9rem}
 #done{display:none}
 #done h2.t{border:0;padding:0;font-size:1.5rem;text-align:center;margin:0 0 8px}
-#doneMsg{text-align:center;white-space:pre-wrap;margin:0 0 20px}
+#doneMsg{text-align:center;margin:0 0 20px;line-height:1.5}
+body.done header{display:none}
+body.done main{margin-top:0;padding-top:64px}
 .slider{touch-action:pan-x pan-y;overflow-x:auto;overflow-anchor:none;padding:6px 2px 18px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
 .track{display:flex;gap:14px;width:max-content}
 .s{flex:0 0 240px;cursor:pointer;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;text-align:center;box-shadow:0 6px 0 var(--line),var(--shadow)}
@@ -68,13 +70,13 @@ footer{text-align:center;color:var(--muted);margin-top:22px;font-size:.9rem}
     <h2>SSC Information</h2>
     <label>SSC Institution *</label><input name="sscInst" placeholder="Institution name" required>
     <label>SSC Group *</label>
-    <select name="sscGroup" required><option value="">Select group</option><option>Science</option><option>Commerce</option><option>Humanities</option></select>
+    <select name="sscGroup" required><option value="">Select group</option><option>Science</option><option>Business Studies</option><option>Humanities</option><option>General</option></select>
     <label>GPA Obtained *</label><input name="sscGpa" inputmode="decimal" placeholder="e.g. 5.00" required>
 
     <h2>HSC Information</h2>
     <label>HSC Institution *</label><input name="hscInst" placeholder="Institution name" required>
     <label>HSC Current Group *</label>
-    <select name="hscGroup" required><option value="">Select group</option><option>Science</option><option>Commerce</option><option>Humanities</option></select>
+    <select name="hscGroup" required><option value="">Select group</option><option>Science</option><option>Business Studies</option><option>Humanities</option><option>General</option></select>
 
     <h2>Contact Information</h2>
     <label>Address *</label><textarea name="address" placeholder="Village/Area, Upazila, District" required></textarea>
@@ -112,10 +114,33 @@ applyTheme(saved||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'li
 $('#theme').onclick=()=>applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
 
 /* ---- load settings ---- */
+function cleanHtml(h){
+  h=String(h||'');
+  if(!/<[a-z][\s\S]*>/i.test(h)) return esc(h).replace(/\n/g,'<br>');
+  const doc=new DOMParser().parseFromString('<body>'+h+'</body>','text/html');
+  const OK={B:1,STRONG:1,I:1,EM:1,U:1,S:1,STRIKE:1,BR:1,DIV:1,P:1,SPAN:1};
+  const PROP=/^(color|background-color|font-size|font-weight|font-style|text-decoration|text-decoration-line|text-align)$/;
+  const VAL=/^[#\w\s.,()%-]+$/;
+  (function walk(n){
+    [...n.childNodes].forEach(c=>{
+      if(c.nodeType===3) return;
+      if(c.nodeType!==1){c.remove();return}
+      if(!OK[c.tagName]){walk(c);while(c.firstChild)c.parentNode.insertBefore(c.firstChild,c);c.remove();return}
+      [...c.attributes].forEach(a=>{if(a.name!=='style')c.removeAttribute(a.name)});
+      if(c.hasAttribute('style')){
+        const keep=[];
+        c.getAttribute('style').split(';').forEach(d=>{const i=d.indexOf(':');if(i<0)return;const k=d.slice(0,i).trim().toLowerCase(),v=d.slice(i+1).trim();if(PROP.test(k)&&VAL.test(v)&&!/url|expression|import/i.test(v))keep.push(k+':'+v)});
+        keep.length?c.setAttribute('style',keep.join(';')):c.removeAttribute('style');
+      }
+      walk(c);
+    });
+  })(doc.body);
+  return doc.body.innerHTML;
+}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 fetch(API_URL).then(r=>r.json()).then(d=>{
   CONFIG=d.config;
-  if(CONFIG.topNote){const n=$('#topNote');n.textContent=CONFIG.topNote;n.style.display='block'}
+  if(CONFIG.topNote){const n=$('#topNote');n.innerHTML=cleanHtml(CONFIG.topNote);n.style.display='block'}
 }).catch(()=>{});
 
 /* ---- submit with retry (safe: same ID is never saved twice) ---- */
@@ -158,7 +183,8 @@ async function showDone(){
   if(!CONFIG){try{CONFIG=(await (await fetch(API_URL)).json()).config}catch(e){CONFIG={}}}
   $('#f').style.display='none';$('#topNote').style.display='none';
   $('#doneTitle').textContent=CONFIG.successTitle||'Thank you!';
-  $('#doneMsg').textContent=CONFIG.successMessage||'';
+  $('#doneMsg').innerHTML=cleanHtml(CONFIG.successMessage||'');
+  document.body.classList.add('done');
   $('#fb').href=CONFIG.fbLink||'#';$('#fbName').textContent=CONFIG.fbName||'Facebook';
   $('#done').style.display='block';
   LIST=CONFIG.showcase||[];
