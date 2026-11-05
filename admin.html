@@ -39,6 +39,14 @@ img.t{width:46px;height:46px;border-radius:50%;object-fit:cover;margin-right:10p
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#14213d;color:#fff;padding:12px 18px;border-radius:12px;display:none;z-index:99;max-width:90%;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.4)}
 .st{color:var(--muted);font-size:.88rem;margin:2px 0 12px}
 hr{border:0;border-top:1px solid var(--line);margin:16px 0}
+.ed{min-height:80px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card);margin:4px 0 6px;outline:none;line-height:1.5}
+.ed:focus{outline:2px solid #2358d8}
+.tb{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-top:6px}
+.tb .tbb{padding:6px 10px;font-size:.9rem;background:var(--card);color:var(--text);border:1px solid var(--line);min-width:36px}
+.tb select{width:auto;margin:0;padding:6px;font-size:.85rem}
+.tb .sw{width:24px;height:24px;border-radius:50%;padding:0;min-width:0;border:2px solid var(--line)}
+.tb input[type=color]{width:34px;height:30px;padding:1px;margin:0}
+.tb .lb{font-size:.75rem;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -75,9 +83,10 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
 
   <!-- MESSAGES -->
   <div id="p2" class="pane card">
-    <label>Note at the top of the form (optional)</label><textarea id="topNote" rows="2"></textarea>
+    <label>Note at the top of the form (optional)</label><div id="topNoteEd" class="ed" contenteditable="true"></div>
     <label>Title after submit</label><input id="successTitle">
-    <label>Message after submit</label><textarea id="successMessage" rows="3"></textarea>
+    <label>Message after submit</label><div id="successMessageEd" class="ed" contenteditable="true"></div>
+    <div class="st">Select text, then use the buttons above the box (bold, italic, underline, size, text color, highlight). Pick colors that are readable on both white and black backgrounds.</div>
     <label>Facebook box name</label><input id="fbName">
     <label>Facebook page link</label><input id="fbLink" placeholder="https://www.facebook.com/yourpage">
     <button id="saveCfg">Save</button> <span id="cmsg"></span>
@@ -128,6 +137,67 @@ let PW=sessionStorage.getItem('pw')||'', ROWS=[], SHOW=[], editId=null, CUR=[], 
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const LS={get(k,d){try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 
+function cleanHtml(h){
+  h=String(h||'');
+  if(!/<[a-z][\s\S]*>/i.test(h)) return esc(h).replace(/\n/g,'<br>');
+  const doc=new DOMParser().parseFromString('<body>'+h+'</body>','text/html');
+  const OK={B:1,STRONG:1,I:1,EM:1,U:1,S:1,STRIKE:1,BR:1,DIV:1,P:1,SPAN:1};
+  const PROP=/^(color|background-color|font-size|font-weight|font-style|text-decoration|text-decoration-line|text-align)$/;
+  const VAL=/^[#\w\s.,()%-]+$/;
+  (function walk(n){
+    [...n.childNodes].forEach(c=>{
+      if(c.nodeType===3) return;
+      if(c.nodeType!==1){c.remove();return}
+      if(!OK[c.tagName]){walk(c);while(c.firstChild)c.parentNode.insertBefore(c.firstChild,c);c.remove();return}
+      [...c.attributes].forEach(a=>{if(a.name!=='style')c.removeAttribute(a.name)});
+      if(c.hasAttribute('style')){
+        const keep=[];
+        c.getAttribute('style').split(';').forEach(d=>{const i=d.indexOf(':');if(i<0)return;const k=d.slice(0,i).trim().toLowerCase(),v=d.slice(i+1).trim();if(PROP.test(k)&&VAL.test(v)&&!/url|expression|import/i.test(v))keep.push(k+':'+v)});
+        keep.length?c.setAttribute('style',keep.join(';')):c.removeAttribute('style');
+      }
+      walk(c);
+    });
+  })(doc.body);
+  return doc.body.innerHTML;
+}
+
+/* ---------- rich text editors (bold / italic / underline / size / color / highlight) ---------- */
+const RANGES={};
+document.addEventListener('selectionchange',()=>{
+  const sel=getSelection();if(!sel.rangeCount)return;
+  document.querySelectorAll('.ed').forEach(ed=>{if(ed.contains(sel.anchorNode))RANGES[ed.id]=sel.getRangeAt(0).cloneRange()});
+});
+function run(id,cmd,val){
+  const ed=$('#'+id);ed.focus();
+  const r=RANGES[id];if(r){const sel=getSelection();sel.removeAllRanges();sel.addRange(r)}
+  document.execCommand('styleWithCSS',false,true);
+  document.execCommand(cmd,false,val==null?null:val);
+}
+function mkToolbar(id){
+  const ed=$('#'+id),tb=document.createElement('div');tb.className='tb';
+  const btn=(label,title,fn,extra)=>{const b=document.createElement('button');b.type='button';b.className='tbb'+(extra&&extra.sw?' sw':'');b.innerHTML=label;b.title=title;
+    if(extra&&extra.bg)b.style.background=extra.bg;
+    b.addEventListener('mousedown',e=>e.preventDefault());b.addEventListener('click',fn);tb.appendChild(b)};
+  btn('<b>B</b>','Bold',()=>run(id,'bold'));
+  btn('<i>I</i>','Italic',()=>run(id,'italic'));
+  btn('<u>U</u>','Underline',()=>run(id,'underline'));
+  const sz=document.createElement('select');
+  sz.innerHTML='<option value="">Size</option><option value="2">Small</option><option value="3">Normal</option><option value="5">Large</option><option value="6">X-Large</option>';
+  sz.onchange=()=>{if(sz.value)run(id,'fontSize',sz.value);sz.value=''};tb.appendChild(sz);
+  const lb1=document.createElement('span');lb1.className='lb';lb1.textContent='Color';tb.appendChild(lb1);
+  ['#e11d48','#ea580c','#ca8a04','#16a34a','#2563eb','#7c3aed','#ffffff','#000000'].forEach(c=>btn('',c,()=>run(id,'foreColor',c),{sw:1,bg:c}));
+  const ci=document.createElement('input');ci.type='color';ci.value='#e11d48';ci.title='Custom text color';ci.oninput=()=>run(id,'foreColor',ci.value);tb.appendChild(ci);
+  const lb2=document.createElement('span');lb2.className='lb';lb2.textContent='Highlight';tb.appendChild(lb2);
+  ['#fde047','#86efac','#f9a8d4','#67e8f9'].forEach(c=>btn('',c,()=>{run(id,'hiliteColor',c);run(id,'foreColor','#111111')},{sw:1,bg:c}));
+  btn('&#10005;','Remove highlight',()=>run(id,'hiliteColor','transparent'));
+  btn('Clear','Clear all formatting of selection',()=>run(id,'removeFormat'));
+  ed.parentNode.insertBefore(tb,ed);
+  ed.addEventListener('paste',e=>{e.preventDefault();const t=(e.clipboardData||window.clipboardData).getData('text/plain');document.execCommand('insertText',false,t)});
+}
+const setEd=(id,v)=>{$('#'+id).innerHTML=cleanHtml(v||'')};
+const getEd=id=>{const ed=$('#'+id);return ed.textContent.trim()?cleanHtml(ed.innerHTML):''};
+mkToolbar('topNoteEd');mkToolbar('successMessageEd');
+
 let tt;function toast(m,ms=3500){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(tt);if(ms)tt=setTimeout(()=>t.style.display='none',ms)}
 
 async function api(action,extra={}){
@@ -141,7 +211,8 @@ async function load(){
   if(!j.ok){PW='';sessionStorage.removeItem('pw');$('#panel').style.display='none';$('#login').style.display='block';$('#lerr').textContent=j.error||'Error';return}
   $('#login').style.display='none';$('#panel').style.display='block';
   ROWS=j.rows;
-  for(const k of ['topNote','successTitle','successMessage','fbName','fbLink','ntfyTopic']) $('#'+k).value=j.config[k]||'';
+  for(const k of ['successTitle','fbName','fbLink','ntfyTopic']) $('#'+k).value=j.config[k]||'';
+  setEd('topNoteEd',j.config.topNote);setEd('successMessageEd',j.config.successMessage);
   SHOW=j.showcase;
   $('#sList').innerHTML=SHOW.map((s,i)=>`<div class="row"><div class="flex">${s.photo?`<img class="t" src="${esc(s.photo)}">`:''}<div><b>${esc(s.name)}</b><small>${esc(s.qualification)}</small></div></div><div style="display:flex;gap:6px"><button class="sm" onclick="editS(${i})">Edit</button><button class="del" onclick="delS('${esc(s.id)}')">Delete</button></div></div>`).join('')||'<small>None yet</small>';
   handleIds(ROWS.map(r=>r.id));
@@ -311,7 +382,8 @@ document.querySelectorAll('.tabs [data-t]').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));$('#'+b.dataset.t).classList.add('on');
 });
 $('#saveCfg').onclick=async()=>{
-  const config={};for(const k of ['topNote','successTitle','successMessage','fbName','fbLink'])config[k]=$('#'+k).value;
+  const config={};for(const k of ['successTitle','fbName','fbLink'])config[k]=$('#'+k).value;
+  config.topNote=getEd('topNoteEd');config.successMessage=getEd('successMessageEd');
   const j=await api('saveConfig',{config});$('#cmsg').textContent=j.ok?'Saved ✔':(j.error||'Error');
 };
 
