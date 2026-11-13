@@ -38,6 +38,7 @@ img.t{width:46px;height:46px;border-radius:50%;object-fit:cover;margin-right:10p
 .top{display:flex;align-items:center;gap:10px;margin-bottom:12px}.top img{width:38px;height:38px;border-radius:50%}.top b{flex:1}
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#14213d;color:#fff;padding:12px 18px;border-radius:12px;display:none;z-index:99;max-width:90%;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.4)}
 .st{color:var(--muted);font-size:.88rem;margin:2px 0 12px}
+#grpSel{padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit;flex:1;min-width:0}
 hr{border:0;border-top:1px solid var(--line);margin:16px 0}
 .ed{min-height:80px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card);margin:4px 0 6px;outline:none;line-height:1.5}
 .ed:focus{outline:2px solid #2358d8}
@@ -77,6 +78,9 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
       <button id="dlAll">Download all (PDF)</button>
       <button id="seenAll" class="grey sm">Mark all as seen</button>
     </div>
+
+    <label>HSC group-wise list (PDF)</label>
+    <div class="bar"><select id="grpSel"></select><button id="dlGrp">Download</button></div>
     <input id="q" placeholder="Search name / mobile / institution">
     <div id="rows"></div>
   </div>
@@ -131,7 +135,7 @@ hr{border:0;border-top:1px solid var(--line);margin:16px 0}
 <div id="toast"></div>
 
 <script>
-const API_URL = "https://script.google.com/macros/s/AKfycbw54XbdpLbJTh1505LeN2HPyUrdcWq0eGfPPvjEHkdbBEqiii1rK-25MV5FKk5dv4cF/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbxNUhjVqXwI1qALRQlQpIGRXJW3bw_9aC_EHHLHUO4lXMUnuT0MNEx3MoAH2ajOvE57/exec";
 const $=s=>document.querySelector(s);
 let PW=sessionStorage.getItem('pw')||'', ROWS=[], SHOW=[], editId=null, CUR=[], pollTimer=null;
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -259,6 +263,7 @@ function startPolling(){
 $('#seenAll').onclick=()=>{seen=new Set(CUR);persist();drawRows();updateBadge()};
 
 function drawRows(){
+  fillGroupSelect();
   const q=$('#q').value.toLowerCase();
   const list=[...ROWS].reverse().filter(r=>!q||(r.name+r.mobile+r.sscInst+r.hscInst).toLowerCase().includes(q));
   $('#count').textContent=`Total: ${ROWS.length}`+(q?` (showing ${list.length})`:'');
@@ -326,14 +331,32 @@ function dlOne(id){
   const r=ROWS.find(x=>x.id===id);if(!r)return;
   makePdf([singlePage(r)],`Student_${safe(r.name)}.pdf`);
 }
+const GROUPS=['Science','Business Studies','Humanities','General'];
+const grp=r=>{const g=String(r.hscGroup||'').trim();return /^commerce$/i.test(g)?'Business Studies':g};   // old "Commerce" entries count as Business Studies
+function buildPages(sections){
+  const per=5,chunks=[];
+  sections.forEach(sec=>{const n=Math.ceil(sec.rows.length/per);for(let p=0;p<n;p++)chunks.push({sec,p,rows:sec.rows.slice(p*per,p*per+per)})});
+  return chunks.map((c,i)=>pageShell(`<div style="font-size:13px;color:#445;margin-bottom:10px">${esc(c.sec.note)}</div>`+c.rows.map((r,k)=>block(r,c.p*per+k+1)).join(''),i+1,chunks.length,c.sec.title));
+}
+const today=()=>new Date().toISOString().slice(0,10);
 $('#dlAll').onclick=()=>{
   if(!ROWS.length){toast('No submissions yet');return}
-  const per=5,total=Math.ceil(ROWS.length/per),pages=[];
-  for(let p=0;p<total;p++){
-    const chunk=ROWS.slice(p*per,p*per+per);
-    pages.push(pageShell(`<div style="font-size:13px;color:#445;margin-bottom:10px">Total registered students: <b>${ROWS.length}</b></div>`+chunk.map((r,k)=>block(r,p*per+k+1)).join(''),p+1,total,'All Students'));
-  }
-  makePdf(pages,`All_Students_${new Date().toISOString().slice(0,10)}.pdf`);
+  makePdf(buildPages([{title:'All Students',rows:ROWS,note:`Total registered students: ${ROWS.length}`}]),`All_Students_${today()}.pdf`);
+};
+
+/* ---- HSC group-wise PDF ---- */
+function fillGroupSelect(){
+  const sel=$('#grpSel'),cur=sel.value||'ALL';
+  const cnt=g=>ROWS.filter(r=>grp(r)===g).length;
+  sel.innerHTML=`<option value="ALL">All groups (separate lists)</option>`+GROUPS.map(g=>`<option value="${g}">${g} (${cnt(g)})</option>`).join('');
+  sel.value=cur;
+}
+$('#dlGrp').onclick=()=>{
+  const v=$('#grpSel').value,secs=[];
+  (v==='ALL'?GROUPS:[v]).forEach(g=>{const rows=ROWS.filter(r=>grp(r)===g);if(rows.length)secs.push({title:'HSC - '+g,rows,note:`HSC group: ${g}   |   Students: ${rows.length}`})});
+  if(v==='ALL'){const o=ROWS.filter(r=>!GROUPS.includes(grp(r)));if(o.length)secs.push({title:'HSC - Other',rows:o,note:`HSC group: Other   |   Students: ${o.length}`})}
+  if(!secs.length){toast('No students in this group');return}
+  makePdf(buildPages(secs),`HSC_${v==='ALL'?'All_Groups':safe(v)}_${today()}.pdf`);
 };
 
 /* ================= install app + notifications ================= */
